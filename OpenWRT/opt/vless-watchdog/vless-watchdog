@@ -2,15 +2,16 @@
 
 DIR_RUN="/opt/vless-watchdog"
 DIR_WORK="/var/run/vless-watchdog"
-FILE_SOURCE="${DIR_RUN}/source.txt"
+FILE_SOURCE="${DIR_WORK}/source.txt"
 FILE_FAVORITES="${DIR_WORK}/favorites.txt"
 FILE_LOCK="${DIR_WORK}/vless-watchdog.lock"
 FILE_XRAY_CONF="${DIR_WORK}/xray-config.json"
 PATH_XRAY_BIN="${DIR_RUN}/bin/xray_softfloat"
-URL_TEST="https://8.8.8.8"
+URL_TEST="www.google.com"
 URL_SOURCE="https://raw.githack.com/igareck/vpn-configs-for-russia/main/BLACK_VLESS_RUS.txt"
+LIST_EXCLUDE="Russia|Belarus|Kazakhstan|Ukraine"
 
-mkdir -p "$DIR_WORK"
+mkdir -p "$DIR_RUN" "$DIR_WORK"
 
 json_escape() {
     echo "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
@@ -34,19 +35,19 @@ format_json() {
     printf '{"server":"%s","port":%s,"uuid":"%s","sni":"%s","security":"%s"' \
         "$server" "$port" "$uuid" "$sni" "$security"
     [ -n "$encryption" ] && printf ',"encryption":"%s"' "$encryption"
-    [ -n "$pbk" ] && printf ',"pbk":"%s"' "$pbk"
-    [ -n "$sid" ] && printf ',"sid":"%s"' "$sid"
-    [ -n "$flow" ] && printf ',"flow":"%s"' "$flow"
-    [ -n "$fp" ] && printf ',"fp":"%s"' "$fp"
-    [ -n "$type" ] && printf ',"type":"%s"' "$type"
-    [ -n "$path" ] && printf ',"path":"%s"' "$path"
-    [ -n "$host" ] && printf ',"host":"%s"' "$host"
-    [ -n "$mode" ] && printf ',"mode":"%s"' "$mode"
-    [ -n "$svc" ] && printf ',"serviceName":"%s"' "$svc"
-    [ -n "$alpn" ] && printf ',"alpn":"%s"' "$alpn"
-    [ -n "$extra" ] && printf ',"extra":%s' "$extra"
+    [ -n "$pbk" ]        && printf ',"pbk":"%s"' "$pbk"
+    [ -n "$sid" ]        && printf ',"sid":"%s"' "$sid"
+    [ -n "$flow" ]       && printf ',"flow":"%s"' "$flow"
+    [ -n "$fp" ]         && printf ',"fp":"%s"' "$fp"
+    [ -n "$type" ]       && printf ',"type":"%s"' "$type"
+    [ -n "$path" ]       && printf ',"path":"%s"' "$path"
+    [ -n "$host" ]       && printf ',"host":"%s"' "$host"
+    [ -n "$mode" ]       && printf ',"mode":"%s"' "$mode"
+    [ -n "$svc" ]        && printf ',"serviceName":"%s"' "$svc"
+    [ -n "$alpn" ]       && printf ',"alpn":"%s"' "$alpn"
+    [ -n "$extra" ]      && printf ',"extra":%s' "$extra"
     [ -n "$headerType" ] && printf ',"headerType":"%s"' "$headerType"
-    [ -n "$insecure" ] && printf ',"insecure":%s' "$insecure"
+    [ -n "$insecure" ]   && printf ',"insecure":%s' "$insecure"
     [ -n "$allowInsecure" ] && printf ',"allowInsecure":%s' "$allowInsecure"
     printf '}\n'
 }
@@ -54,8 +55,8 @@ format_json() {
 parse_vless() {
     link="$1"
     server=""; port=""; uuid=""; flow=""; pbk=""; sid=""; sni=""; fp="chrome"; type="tcp"
-    security="reality"; encryption=""; path=""; host=""; mode=""; svc=""; alpn=""; extra=""
-    headerType=""; insecure=""; allowInsecure=""; json=""
+    security=""; encryption=""; path=""; host=""; mode=""; svc=""; alpn=""; extra=""
+    headerType=""; insecure=""; allowInsecure=""; json=""; country=""
 
     case "$link" in "vless://"*) ;; *) return 1 ;; esac
 
@@ -81,10 +82,10 @@ parse_vless() {
                 type)        type="$val" ;;
                 security)    security="$val" ;;
                 encryption)  encryption="$val" ;;
-                path)        path=$(decode_param "$val") ;;
-                host)        host=$(decode_param "$val") ;;
+                path)        path=$(json_escape "$(decode_param "$val")") ;;
+                host)        host=$(json_escape "$(decode_param "$val")") ;;
                 mode)        mode="$val" ;;
-                serviceName) svc=$(decode_param "$val") ;;
+                serviceName) svc=$(json_escape "$(decode_param "$val")") ;;
                 alpn)        alpn="$val" ;;
                 extra)       extra=$(decode_param "$val") ;;
                 headerType)  headerType="$val" ;;
@@ -96,136 +97,95 @@ parse_vless() {
     fi
 
     [ -n "$server" ] || return 1
-    [ -n "$port" ] || return 1
-    [ -n "$uuid" ] || return 1
-    [ "$security" = "reality" ] || [ "$security" = "tls" ] || return 1
-    [ -n "$sni" ] || return 1
+    [ -n "$port" ]   || return 1
+    [ -n "$uuid" ]   || return 1
+
+    [ -z "$security" ] && security="none"
+    [ -z "$type" ] && type="tcp"
+
+    if [ -n "$security" ]; then
+        [ "$security" = "reality" ] || [ "$security" = "tls" ] || [ "$security" = "none" ] || return 1
+    fi
+
+    if [ "$security" = "reality" ]; then
+        [ -n "$pbk" ] || return 1
+        [ -n "$sid" ] || return 1
+    fi
+
+    if [ "$security" = "tls" ]; then
+        [ -n "$sni" ] || return 1
+    fi
+
+    if [ "$security" = "none" ]; then
+        [ -z "$sni" ] && sni="$server"
+    fi
+
     [ -z "$encryption" ] || [ "$encryption" = "none" ] || return 1
-    [ "$security" = "reality" ] && { [ -n "$pbk" ] || return 1; }
-    [ "$security" = "reality" ] && { [ -n "$sid" ] || return 1; }
-    case " tcp ws grpc " in *" $type "*) ;; *) return 1 ;; esac
-    [ -z "$flow" ] || [ "$flow" = "xtls-rprx-vision" ] || return 1
+    case " tcp ws grpc xhttp " in *" $type "*) ;; *) return 1 ;; esac
+
+    if [ -n "$flow" ]; then
+        if [ "$type" != "tcp" ]; then
+            return 1
+        fi
+        if [ "$flow" != "xtls-rprx-vision" ] && [ "$flow" != "xtls-rprx-direct" ]; then
+            return 1
+        fi
+    fi
+
+    country=$(echo "$link" | sed -n 's/.*#\([^|]*\)|.*/\1/p')
+    [ -z "$country" ] && country=$(echo "$link" | sed -n 's/.*#\(.*\)/\1/p')
+    [ -z "$country" ] && country="$server"
+    country=$(echo "$country" | sed 's/%[0-9A-F][0-9A-F]//g' | sed 's/[^a-zA-Z0-9, ]//g' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | sed 's/|BL//g' | sed 's/BL//g')
+    [ -z "$country" ] && country="$server"
 
     json=$(format_json)
     return 0
 }
 
-update_source() {
-    echo "Downloading fresh proxy list..."
-    if curl -ksSL --connect-timeout 5 -m 15 "$URL_SOURCE" > "$FILE_SOURCE"; then
-        echo "Info: Source file updated, $(wc -l < "$FILE_SOURCE") entries added!"
-        return 0
-    else
-        echo "Error: Link to source file is unavailable!"
-        return 1
-    fi
-}
-
-build_favorites() {
-    tmp="${DIR_WORK}/favorites.tmp"
-    > "$tmp"
-    count=0
-    max_jobs=15
-
-    while IFS= read -r line || [ -n "$line" ]; do
-        line=$(printf '%s' "$line" | tr -d '\r')
-        parse_vless "$line" || continue
-        count=$((count + 1))
-
-        while [ "$(jobs | wc -l)" -ge "$max_jobs" ]; do
-            sleep 0.1
-        done
-
-        (
-            srv="$server"; prt="$port"; sn="$sni"; js="$json"
-            
-            time_total=$(curl -k --connect-timeout 2 -m 3 -s -o /dev/null -w "%{time_total}" --resolve "${sn}:${prt}:${srv}" "https://${sn}:${prt}/" 2>/dev/null)
-            if [ -n "$time_total" ] && [ "$time_total" != "0.000" ]; then
-                time_ms=$(echo "$time_total * 1000" | awk '{print int($1)}')
-                echo "${time_ms}|$js" >> "$tmp"
-            fi
-        ) &
-    done < "$FILE_SOURCE"
-
-    wait
-
-    if [ -s "$tmp" ]; then
-        sort -n "$tmp" | head -10 | cut -d'|' -f2- > "$FILE_FAVORITES"
-    fi
-
-    rm -f "$tmp"
-    echo "$count"
-}
-
 generate_config() {
-    json_data="$1"
+    local json_data="$1"
 
-    server=$(echo "$json_data" | jsonfilter -e '@.server' 2>/dev/null)
-    port=$(echo "$json_data" | jsonfilter -e '@.port' 2>/dev/null)
-    uuid=$(echo "$json_data" | jsonfilter -e '@.uuid' 2>/dev/null)
-    security=$(echo "$json_data" | jsonfilter -e '@.security' 2>/dev/null)
-    type=$(echo "$json_data" | jsonfilter -e '@.type' 2>/dev/null)
-    sni=$(echo "$json_data" | jsonfilter -e '@.sni' 2>/dev/null)
-    pbk=$(echo "$json_data" | jsonfilter -e '@.pbk' 2>/dev/null)
-    sid=$(echo "$json_data" | jsonfilter -e '@.sid' 2>/dev/null)
-    flow=$(echo "$json_data" | jsonfilter -e '@.flow' 2>/dev/null)
-    fp=$(echo "$json_data" | jsonfilter -e '@.fp' 2>/dev/null)
-    path=$(echo "$json_data" | jsonfilter -e '@.path' 2>/dev/null)
-    host=$(echo "$json_data" | jsonfilter -e '@.host' 2>/dev/null)
-    svc=$(echo "$json_data" | jsonfilter -e '@.serviceName' 2>/dev/null)
-    mode=$(echo "$json_data" | jsonfilter -e '@.mode' 2>/dev/null)
-    alpn=$(echo "$json_data" | jsonfilter -e '@.alpn' 2>/dev/null)
-    ed=$(echo "$json_data" | jsonfilter -e '@.ed' 2>/dev/null)
-    eh=$(echo "$json_data" | jsonfilter -e '@.eh' 2>/dev/null)
-    insecure=$(echo "$json_data" | jsonfilter -e '@.insecure' 2>/dev/null)
-    allowInsecure=$(echo "$json_data" | jsonfilter -e '@.allowInsecure' 2>/dev/null)
+    local server=$(echo "$json_data" | sed -E -n 's/.*"server":"([^"]*)".*/\1/p')
+    local port=$(echo "$json_data" | sed -E -n 's/.*"port":([0-9]+).*/\1/p')
+    local uuid=$(echo "$json_data" | sed -E -n 's/.*"uuid":"([^"]*)".*/\1/p')
+    local security=$(echo "$json_data" | sed -E -n 's/.*"security":"([^"]*)".*/\1/p')
+    local type=$(echo "$json_data" | sed -E -n 's/.*"type":"([^"]*)".*/\1/p')
+    local sni=$(echo "$json_data" | sed -E -n 's/.*"sni":"([^"]*)".*/\1/p')
+    local pbk=$(echo "$json_data" | sed -E -n 's/.*"pbk":"([^"]*)".*/\1/p')
+    local sid=$(echo "$json_data" | sed -E -n 's/.*"sid":"([^"]*)".*/\1/p')
+    local flow=$(echo "$json_data" | sed -E -n 's/.*"flow":"([^"]*)".*/\1/p')
+    local fp=$(echo "$json_data" | sed -E -n 's/.*"fp":"([^"]*)".*/\1/p')
+    local path=$(echo "$json_data" | sed -E -n 's/.*"path":"([^"]*)".*/\1/p')
+    local host=$(echo "$json_data" | sed -E -n 's/.*"host":"([^"]*)".*/\1/p')
+    local svc=$(echo "$json_data" | sed -E -n 's/.*"serviceName":"([^"]*)".*/\1/p')
+    local mode=$(echo "$json_data" | sed -E -n 's/.*"mode":"([^"]*)".*/\1/p')
+    local extra=$(echo "$json_data" | sed -E -n 's/.*"extra":(\{[^}]*\}).*/\1/p')
+    local spiderX=$(echo "$json_data" | sed -E -n 's/.*"spiderX":"([^"]*)".*/\1/p')
 
-    [ -z "$fp" ] && fp="chrome"
+    [ -z "$security" ] && security="none"
     [ -z "$type" ] && type="tcp"
 
-    user_entry="\"id\": \"$uuid\", \"encryption\": \"none\""
-    if [ -n "$flow" ] && [ "$flow" = "xtls-rprx-vision" ]; then
+    local user_entry="\"id\": \"$uuid\", \"encryption\": \"none\""
+    if [ -n "$flow" ] && [ "$type" = "tcp" ]; then
         user_entry="$user_entry, \"flow\": \"$flow\""
     fi
 
-    sec_settings=""
-    if [ "$security" = "reality" ]; then
-        if [ -n "$pbk" ] && [ -n "$sid" ]; then
-            sec_settings=", \"realitySettings\": { \"fingerprint\": \"$fp\", \"serverName\": \"$sni\", \"publicKey\": \"$pbk\", \"shortId\": \"$sid\" }"
-        else
-            echo "Error: Reality requires pbk and sid" >&2
-            return 1
-        fi
-    elif [ "$security" = "tls" ]; then
-        sec_settings=", \"tlsSettings\": { \"serverName\": \"$sni\", \"fingerprint\": \"$fp\""
-        if [ -n "$alpn" ]; then
-            alpn_clean=$(echo "$alpn" | sed 's/,/","/g')
-            sec_settings="${sec_settings}, \"alpn\": [\"$alpn_clean\"]"
+    local sec_settings=""
+    if [ "$security" = "reality" ] && [ -n "$pbk" ]; then
+        sec_settings="\"realitySettings\": { \"fingerprint\": \"${fp:-chrome}\", \"serverName\": \"$sni\", \"publicKey\": \"$pbk\", \"shortId\": \"$sid\", \"allowInsecure\": false, \"show\": false"
+        if [ -n "$spiderX" ]; then
+            sec_settings="${sec_settings}, \"spiderX\": \"$spiderX\""
         fi
         sec_settings="${sec_settings} }"
-    else
-        echo "Error: Invalid security: $security" >&2
-        return 1
+    elif [ "$security" = "tls" ] && [ -n "$sni" ]; then
+        sec_settings="\"tlsSettings\": { \"serverName\": \"$sni\", \"fingerprint\": \"${fp:-chrome}\", \"allowInsecure\": true }"
     fi
 
-    net_settings=""
+    local net_settings=""
     if [ "$type" = "ws" ]; then
-        ws_path="${path:-/}"
-        ws_host="${host:-$sni}"
-        
-        net_settings=", \"wsSettings\": { \"path\": \"$ws_path\", \"headers\": { \"Host\": \"$ws_host\" }"
-        
-        if [ -n "$ed" ]; then
-            net_settings="${net_settings}, \"ed\": $ed"
-        fi
-        if [ -n "$eh" ]; then
-            net_settings="${net_settings}, \"eh\": \"$eh\""
-        fi
-        net_settings="${net_settings} }"
-        
+        net_settings="\"wsSettings\": { \"path\": \"${path:-/}\", \"headers\": { \"Host\": \"${host:-$sni}\" } }"
     elif [ "$type" = "grpc" ]; then
-        net_settings=", \"grpcSettings\": { \"serviceName\": \"${svc:-}\""
-        
+        net_settings="\"grpcSettings\": { \"serviceName\": \"${svc:-grpc}\""
         if [ -n "$host" ]; then
             net_settings="${net_settings}, \"authority\": \"$host\""
         fi
@@ -233,31 +193,55 @@ generate_config() {
             net_settings="${net_settings}, \"multiMode\": true"
         fi
         net_settings="${net_settings} }"
+    elif [ "$type" = "xhttp" ]; then
+        net_settings="\"xhttpSettings\": { \"path\": \"${path:-/}\""
+        if [ -n "$host" ]; then
+            net_settings="${net_settings}, \"host\": \"$host\""
+        fi
+        if [ -n "$mode" ]; then
+            net_settings="${net_settings}, \"mode\": \"$mode\""
+        fi
+        if [ -n "$extra" ]; then
+            net_settings="${net_settings}, \"extra\": $extra"
+        fi
+        net_settings="${net_settings} }"
+    else
+        net_settings="\"tcpSettings\": { \"header\": { \"type\": \"none\" } }"
     fi
 
-    cat << JSON > "$FILE_XRAY_CONF"
+    STREAM_JSON="\"network\": \"$type\", \"security\": \"$security\", \"sockopt\": { \"mark\": 255 }"
+    [ -n "$sec_settings" ] && STREAM_JSON="${STREAM_JSON}, $sec_settings"
+    [ -n "$net_settings" ] && STREAM_JSON="${STREAM_JSON}, $net_settings"
+
+    cat << JSON
 {
-  "log": { "loglevel": "warning" },
+  "log": { "loglevel": "none" },
   "inbounds": [
+    {
+      "listen": "127.0.0.1",
+      "port": 8010,
+      "protocol": "http",
+      "settings": { "udp": false }
+    },
+    {
+      "listen": "127.0.0.1",
+      "port": 54321,
+      "protocol": "dokodemo-door",
+      "settings": { "address": "$URL_TEST", "port": 80, "network": "tcp" }
+    },
     {
       "listen": "0.0.0.0",
       "port": 1080,
       "protocol": "socks",
-      "settings": { "udp": true }
+      "settings": { "udp": true },
+      "sniffing": { "destOverride": ["http", "tls", "quic"], "enabled": true }
     },
     {
       "listen": "0.0.0.0",
       "port": 12345,
       "protocol": "dokodemo-door",
-      "settings": {
-        "network": "tcp,udp",
-        "followRedirect": true
-      },
-      "streamSettings": {
-        "sockopt": {
-          "tproxy": "tproxy"
-        }
-      }
+      "settings": { "network": "tcp,udp", "followRedirect": true },
+      "streamSettings": { "sockopt": { "tproxy": "tproxy" } }
     }
   ],
   "outbounds": [
@@ -271,11 +255,7 @@ generate_config() {
         }]
       },
       "streamSettings": {
-        "network": "$type",
-        "security": "$security"$sec_settings$net_settings
-      },
-      "sockopt": {
-        "mark": 255
+        $STREAM_JSON
       }
     }
   ]
@@ -283,128 +263,246 @@ generate_config() {
 JSON
 }
 
-switch_next() {
+update_source() {
+    echo "Info: Trying to download source file..."
+    if curl -ksSL --connect-timeout 7 -m 9 "$URL_SOURCE" > "$FILE_SOURCE"; then
+        echo "Info: Source file updated, contains $(grep -c "^vless://" "$FILE_SOURCE" 2>/dev/null || echo "0") lines."
+        return 0
+    else
+        echo "Error: Failed to download source file!"
+        return 1
+    fi
+}
+
+start_xray() {
+    killall xray_softfloat 2>/dev/null
+    generate_config "$json" > "$1"
+
+    for i in 1 2 3; do
+        netstat -an 2>/dev/null | grep -qE ":(8010|54321).*LISTEN" || break
+        sleep 1
+    done
+
+
+    $PATH_XRAY_BIN run -c "$1" >/dev/null 2>&1 &
+
+    local port="8010"
+    [ "$2" = "none" ] && port="54321"
+
+    for i in 1 2 3 4 5; do
+        netstat -an 2>/dev/null | grep -qE "127.0.0.1:$port.*LISTEN" && return 0
+        sleep 1
+    done
+
+    return 1
+}
+
+check_connection() {
+    if [ "$1" = "none" ]; then
+        curl -s --connect-timeout 1 -m 3 "http://127.0.0.1:54321/" -o /dev/null -w "%{http_code}" 2>/dev/null | grep -qE "20[04]|30[12]"
+    else
+        curl -x http://127.0.0.1:8010 -s --connect-timeout 1 -m 3 "http://$URL_TEST" -o /dev/null -w "%{http_code}" 2>/dev/null | grep -qE "20[04]|30[12]"
+    fi
+}
+
+build_favorites() {
     if [ -f "$FILE_LOCK" ]; then
-        echo "Warning: Lock file exists. Another instance is running!"
+        echo "Warning: Another instance is running (lock file exists)."
         exit 1
     fi
 
-    if [ ! -f "$FILE_FAVORITES" ] || [ ! -s "$FILE_FAVORITES" ]; then
-        echo "Warning: Favorites file not found. Use 'vless-watchdog build'"
-        exit 1
-    fi
-
-    touch "$FILE_LOCK"
     trap 'rm -f "$FILE_LOCK"' EXIT INT TERM
+    touch "$FILE_LOCK"
 
-    current=$(jsonfilter -i "$FILE_XRAY_CONF" -e '@.outbounds.settings.vnext.address' 2>/dev/null)
-    next=""; first=""; found=0
+    TMP_FAVORITES="${DIR_WORK}/favorites.tmp"
 
-    while IFS= read -r line; do
+    > "$TMP_FAVORITES"
+    > "$FILE_FAVORITES"
+
+    count=0
+    active=0
+    total=$(grep -c "^vless://" "$FILE_SOURCE" 2>/dev/null || echo "0")
+
+    local start_build=$(date +%s)
+
+    while IFS= read -r line || [ -n "$line" ]; do
         [ -z "$line" ] && continue
-        [ -z "$first" ] && first="$line"
-        server=$(echo "$line" | jsonfilter -e '@.server')
-        if [ "$found" -eq 1 ] && [ "$server" != "$current" ]; then
-            next="$line"
+
+        parse_vless "$line" || continue
+        echo "$country" | grep -qE "$LIST_EXCLUDE" && continue
+
+        count=$((count + 1))
+        echo -ne "\r Processing: [$count/$total] ⏳"
+
+        security=$(echo "$json" | sed -E -n 's/.*"security":"([^"]*)".*/\1/p')
+
+        if start_xray "${FILE_XRAY_CONF%.json}.tmp.json" "$security"; then
+            start_check=$(cat /proc/uptime | awk '{print $1}')
+            if check_connection "$security"; then
+                end_check=$(cat /proc/uptime | awk '{print $1}')
+                timing_check=$(awk "BEGIN {printf \"%.3f\", $end_check - $start_check}")
+                echo "${timing_check}|${json}|${country}" >> "$TMP_FAVORITES"
+                active=$((active + 1))
+            fi
+        fi
+
+    done < "$FILE_SOURCE"
+
+    local end_build=$(date +%s)
+    local timing_build=$((end_build - start_build))
+
+    echo -e "\r Processing: [$count/$total] ✅"
+
+    killall xray_softfloat 2>/dev/null
+
+    if [ -s "$TMP_FAVORITES" ]; then
+        sort -t'|' -k1 -n "$TMP_FAVORITES" | awk -F'|' '
+        match($2, /\"server\":\"[^\"]*\"/) {
+            addr = substr($2, RSTART + 10, RLENGTH - 11)
+            if (!seen[addr]++) print $2
+        }' | head -15 > "$FILE_FAVORITES"
+    fi
+
+    echo "=====FAVORIYES====="
+
+    if [ -s "$FILE_FAVORITES" ]; then
+        head -15 "$FILE_FAVORITES" | while IFS= read -r json; do
+            time=$(grep -F "|${json}|" "$TMP_FAVORITES" | cut -d'|' -f1)
+            country=$(grep -F "|${json}|" "$TMP_FAVORITES" | cut -d'|' -f3)
+            server=$(echo "$json" | sed -E -n 's/.*"server":"([^"]*)".*/\1/p')
+            port=$(echo "$json" | sed -E -n 's/.*"port":([0-9]+).*/\1/p')
+            security=$(echo "$json" | sed -E -n 's/.*"security":"([^"]*)".*/\1/p')
+            type=$(echo "$json" | sed -E -n 's/.*"type":"([^"]*)".*/\1/p')
+            [ -z "$security" ] && security="none"
+            [ -z "$type" ] && type="tcp"
+            proto="[$security/$type]"
+            printf " %-7s | %-15s | %-30.30s | %s\n" "${time}s" "$proto" "$country" "$server:$port"
+        done
+
+        echo "==================="
+        echo " Actives: $active"
+        echo " Time: ${timing_build}s"
+
+    else
+        echo "Error: No active servers found!"
+    fi
+
+    rm -f "${FILE_XRAY_CONF%.json}.tmp.json" "$TMP_FAVORITES" "$FILE_LOCK"
+}
+
+switch_next() {
+    if [ -f "$FILE_LOCK" ] || [ ! -s "$FILE_FAVORITES" ]; then
+        [ -f "$FILE_LOCK" ] && echo "Warning: Another instance is running (lock file exists)."
+        [ -f "$FILE_LOCK" ] || echo "Warning: Favorites file not found. Use 'vless-watchdog build'."
+        exit 1
+    fi
+
+    trap 'rm -f "$FILE_LOCK"' EXIT INT TERM
+    touch "$FILE_LOCK"
+
+    current_server=$(grep -A 1 '"vnext"' "$FILE_XRAY_CONF" | grep '"address"' | cut -d'"' -f4)
+    first=""
+    found=0
+    next=""
+
+    while IFS= read -r json || [ -n "$json" ]; do
+        [ -z "$json" ] && continue
+        [ -z "$first" ] && first="$json"
+
+        server=$(echo "$json" | sed -n 's/.*"server":"\([^"]*\)".*/\1/p')
+
+        if [ "$found" -eq 1 ] && [ "$server" != "$current_server" ]; then
+            next="$json"
             break
         fi
-        if [ "$server" = "$current" ]; then
-            found=1
-        fi
+
+        [ "$server" = "$current_server" ] && found=1
     done < "$FILE_FAVORITES"
 
     [ -z "$next" ] && next="$first"
 
-    if [ -z "$next" ]; then
-        echo "Favorites empty"
-        rm -f "$FILE_LOCK"
-        exit 1
+    security=$(echo "$next" | sed -E -n 's/.*"security":"([^"]*)".*/\1/p')
+
+    json="$next"
+    if start_xray "$FILE_XRAY_CONF" "$security"; then
+        if check_connection "$security"; then
+            server=$(echo "$next" | sed -n 's/.*"server":"\([^"]*\)".*/\1/p')
+            port=$(echo "$next" | sed -n 's/.*"port":\([0-9]*\).*/\1/p')
+            echo "Info: Switched to next server: $server:$port"
+            rm -f "$FILE_LOCK"
+            exit 0
+        else
+            echo "Warning: This server is unavailable, please switch to another one."
+            rm -f "$FILE_LOCK"
+            exit 1
+        fi
     fi
-
-    generate_config "$next"
-
-    pkill -f "$PATH_XRAY_BIN" 2>/dev/null
-    sleep 1
-
-    "$PATH_XRAY_BIN" run -c "$FILE_XRAY_CONF" >/dev/null 2>&1 &
-    sleep 2
-
-    n_server=$(echo "$next" | jsonfilter -e '@.server')
-    n_port=$(echo "$next" | jsonfilter -e '@.port')
-
-    if curl --socks5 127.0.0.1:1080 -s -o /dev/null -m 3 "$URL_TEST" 2>/dev/null; then
-        echo "Info: Switched to the following server $n_server:$n_port"
-    else
-        echo "Error: Server $n_server:$n_port is not working! Try another next."
-    fi
-
-    rm -f "$FILE_LOCK"
-    exit 0
 }
 
 main() {
-    if [ -f "$FILE_LOCK" ] || curl --socks5 127.0.0.1:1080 -s -o /dev/null -m 3 "$URL_TEST" 2>/dev/null; then
-        if [ -f "$FILE_LOCK" ]; then
-            echo "Warning: Lock file exists. Another instance is running!"
-        else
-            echo "Info: The connection works!"
-        fi
-        exit 0
+    if [ -f "$FILE_LOCK" ]; then
+        echo "Warning: Another instance is running (lock file exists)."
+        exit 1
     fi
 
-    touch "$FILE_LOCK"
+    if [ -f "$FILE_XRAY_CONF" ]; then
+        current_security=$(grep -o '"security":"[^"]*"' "$FILE_XRAY_CONF" 2>/dev/null | head -1 | cut -d'"' -f4)
+        if check_connection "$current_security"; then
+            echo "Info: The connection works."
+            exit 0
+        fi
+    fi
+
     trap 'rm -f "$FILE_LOCK"' EXIT INT TERM
+    touch "$FILE_LOCK"
 
-    echo "Warning: Connection lost. Trying to find a working server..."
+    echo "Warning: Connection lost, trying to switch to an available server..."
 
-    found=0; json=""; server=""; port=""
+    server=""
+    port=""
+    found=0
 
-    if [ -f "$FILE_FAVORITES" ]; then
-        while IFS= read -r line || [ -n "$line" ]; do
-            [ -z "$line" ] && continue
+    if [ -s "$FILE_FAVORITES" ]; then
+        while IFS= read -r json || [ -n "$json" ]; do
+            [ -z "$json" ] && continue
 
-            generate_config "$line"
+            security=$(echo "$json" | sed -E -n 's/.*"security":"([^"]*)".*/\1/p')
 
-            pkill -f "$PATH_XRAY_BIN" 2>/dev/null
-            sleep 1
-
-            "$PATH_XRAY_BIN" run -c "$FILE_XRAY_CONF" >/dev/null 2>&1 &
-            sleep 3
-
-            if curl --socks5 127.0.0.1:1080 -s -o /dev/null -m 3 "$URL_TEST" 2>/dev/null; then
-                found=1
-                json="$line"
-                server=$(echo "$line" | jsonfilter -e '@.server')
-                port=$(echo "$line" | jsonfilter -e '@.port')
-                break
+            if start_xray "$FILE_XRAY_CONF" "$security"; then
+                if check_connection "$security"; then
+                    server=$(echo "$json" | sed -n 's/.*"server":"\([^"]*\)".*/\1/p')
+                    port=$(echo "$json" | sed -n 's/.*"port":\([0-9]*\).*/\1/p')
+                    found=1
+                    break
+                fi
             fi
         done < "$FILE_FAVORITES"
     fi
 
     if [ "$found" -eq 1 ]; then
-        echo "Info: Connection established with server $server:$port"
+        echo "Info: Connection established, current server $server:$port."
         rm -f "$FILE_LOCK"
         exit 0
     fi
 
-    echo "Warning: No available nodes found. Trying to rebuild the favorites list..."
-    rebuilt_count=$(build_favorites)
-
     rm -f "$FILE_LOCK"
 
-    if [ "$rebuilt_count" -eq 0 ]; then
-        echo "Error: No active servers found in source file! Use 'vless-watchdog update'"
+    echo "Warning: No available servers found, trying to rebuild the favorites list..."
+    build_favorites
+
+    if [ ! -s "$FILE_FAVORITES" ]; then
+        echo "Error: No active servers found in source file. Use 'vless-watchdog update'."
         exit 1
     else
-        echo "Info: Favorites rebuilt! Use 'vless-watchdog main'"
+        echo "Info: Favorites list rebuilt successfully. Use 'vless-watchdog main'."
         exit 0
     fi
 }
 
 case "$1" in
-    main)   main ;;
-    next)   switch_next ;;
     update) update_source ;;
     build)  build_favorites ;;
-    *)      echo "Usage: $0 {main|next|update|build}"; exit 1 ;;
+    next)   switch_next ;;
+    main)   main ;;
+    *) echo "Usage: $0 {update|build|next|main}"; exit 1 ;;
 esac
