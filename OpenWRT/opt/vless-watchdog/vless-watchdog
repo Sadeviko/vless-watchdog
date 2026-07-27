@@ -251,7 +251,7 @@ update_source() {
 }
 
 start_xray() {
-    killall xray_softfloat 2>/dev/null
+    killall "${PATH_XRAY_BIN##*/}" 2>/dev/null
     generate_config "$JSON" > "$1"
     for i in 1 2 3 4 5 6 7; do
         netstat -an 2>/dev/null | grep -qE ":(8010|54321).*LISTEN" || break
@@ -312,7 +312,7 @@ build_favorites() {
 
     local end_build=$(date +%s)
     echo -e "\r Processing: [$count/$total] ✅"
-    killall xray_softfloat 2>/dev/null
+    killall "${PATH_XRAY_BIN##*/}" 2>/dev/null
 
     if [ -s "$tmp_favorites" ]; then
         sort -t'|' -k1 -n "$tmp_favorites" | awk -F'|' '
