@@ -1,0 +1,10 @@
+{
+    "vless-watchdog": {
+        "description": "Allow LuCI to read vless-watchdog favorites",
+        "read": {
+            "file": {
+                "/var/run/vless-watchdog/favorites.txt": [ "read" ]
+            }
+        }
+    }
+}
