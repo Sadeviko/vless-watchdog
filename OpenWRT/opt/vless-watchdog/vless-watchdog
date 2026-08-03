@@ -1,25 +1,20 @@
 #!/bin/sh
 
-DIR_RUN="/opt/vless-watchdog"
 DIR_WORK="/var/run/vless-watchdog"
 FILE_SOURCE="${DIR_WORK}/source.txt"
 FILE_FAVORITES="${DIR_WORK}/favorites.txt"
 FILE_LOCK="${DIR_WORK}/vless-watchdog.lock"
 FILE_XRAY_CONF="${DIR_WORK}/xray-config.json"
-PATH_XRAY_BIN="${DIR_RUN}/bin/xray_softfloat"
+PATH_XRAY_BIN="/opt/vless-watchdog/bin/xray_softfloat"
 URL_SOURCE="https://raw.githack.com/igareck/vpn-configs-for-russia/main/BLACK_VLESS_RUS.txt"
 URL_TEST="http://www.google.com"
-BLACKLIST_WORD="Telegram|video?ed=1024"
+BLACKLIST_WORD="Telegram"
 COUNTRY_EXCLUDE="Russia|Belarus|Kazakhstan|Ukraine"
 
-mkdir -p "$DIR_RUN" "$DIR_WORK"
+mkdir -p "/opt/vless-watchdog/bin" "$DIR_WORK"
 
 json_escape() {
-    printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
-}
-
-regex_escape() {
-    printf '%s' "$1" | sed 's/[.^$*+?()[\]{}\\]/\\&/g'
+    printf '%s' "$1" | sed 's~\\~\\\\~g; s~"~\\"~g'
 }
 
 decode_param() {
@@ -192,26 +187,18 @@ generate_config() {
     },
     "inbounds": [
         {
-            "listen": "127.0.0.1",
+            "listen": "0.0.0.0",
             "port": 8010,
             "protocol": "http",
-            "settings": {
-                "udp": false
-            }
+            "settings": { "udp": false, "timeout": 5 },
+            "sniffing": { "enabled": true, "destOverride": ["http", "tls"] }
         },
         {
             "listen": "0.0.0.0",
             "port": 54321,
             "protocol": "dokodemo-door",
-            "settings": {
-                "network": "tcp,udp",
-                "followRedirect": true
-            },
-            "streamSettings": {
-                "sockopt": {
-                    "tproxy": "tproxy"
-                }
-            }
+            "settings": { "network": "tcp,udp", "followRedirect": true },
+            "streamSettings": { "sockopt": { "tproxy": "tproxy" } }
         }
     ],
     "outbounds": [
@@ -253,21 +240,22 @@ update_source() {
 start_xray() {
     killall "${PATH_XRAY_BIN##*/}" 2>/dev/null
     generate_config "$JSON" > "$1"
-    for i in 1 2 3 4 5 6 7; do
+    for i in 1 2 3 4 5 6 7 8 9; do
         netstat -an 2>/dev/null | grep -qE ":(8010|54321).*LISTEN" || break
         sleep 1
     done
     $PATH_XRAY_BIN run -c "$1" >/dev/null 2>&1 &
-    for i in 1 2 3 4 5; do
-        netstat -an 2>/dev/null | grep -qE "127.0.0.1:8010.*LISTEN" && return 0
+    for i in 1 2 3 4 5 6 7 8 9; do
+        netstat -an 2>/dev/null | grep -qE ":(8010|54321).*LISTEN" && return 0
         sleep 1
     done
     return 1
 }
 
 check_connection() {
+	sleep 1
     local start_check=$(cat /proc/uptime | awk '{print $1}')
-    curl -x http://127.0.0.1:8010 -s --connect-timeout 1 -m 3 "$URL_TEST" -o /dev/null -w "%{http_code}" 2>/dev/null | grep -qE "20[04]|30[12]"
+    curl -x http://127.0.0.1:8010 -s --connect-timeout 1 -m 3 --no-keepalive -o /dev/null -w "%{http_code}" "$URL_TEST" 2>/dev/null | grep -qE "200|301"
     local result=$?
     local end_check=$(cat /proc/uptime | awk '{print $1}')
     TIMING_CHECK=$(awk "BEGIN {printf \"%.3f\", $end_check - $start_check}")
@@ -296,7 +284,7 @@ build_favorites() {
         [ -z "$line" ] && continue
         parse_vless "$line" || continue
         [ -z "$JSON" ] && continue
-        [ -n "$BLACKLIST_WORD" ] && echo "$line" | grep -qiE "$(regex_escape "$BLACKLIST_WORD")" && continue
+        [ -n "$BLACKLIST_WORD" ] && echo "$line" | grep -qiE "$BLACKLIST_WORD" && continue
         [ -n "$COUNTRY_EXCLUDE" ] && echo "$COUNTRY" | grep -qiE "$COUNTRY_EXCLUDE" && continue
 
         count=$((count + 1))
@@ -393,8 +381,11 @@ main() {
     fi
 
     if [ -f "$FILE_XRAY_CONF" ] && check_connection; then
-        echo "Info: The connection works!"
-        exit 0
+        local current_address=$(jsonfilter -e '@.outbounds[0].settings.vnext[0].address' < "$FILE_XRAY_CONF" 2>/dev/null)
+        if [ -n "$current_address" ] && grep -q "$current_address" "$FILE_FAVORITES" 2>/dev/null; then
+            echo "Info: The connection works!"
+            exit 0
+        fi
     fi
 
     trap 'rm -f "$FILE_LOCK"' EXIT INT TERM
