@@ -1,0 +1,23 @@
+{
+    "admin/services/vless-watchdog": {
+        "title": "VLESS Watchdog",
+        "action": {
+            "type": "alias",
+            "path": "admin/services/vless-watchdog/control"
+        }
+    },
+    "admin/services/vless-watchdog/control": {
+        "title": "Control",
+        "action": {
+            "type": "view",
+            "path": "vless-watchdog/control"
+        }
+    },
+    "admin/services/vless-watchdog/favorites": {
+        "title": "Favorites",
+        "action": {
+            "type": "view",
+            "path": "vless-watchdog/favorites"
+        }
+    }
+}
