@@ -6,10 +6,10 @@ FILE_FAVORITES="${DIR_WORK}/favorites.txt"
 FILE_LOCK="${DIR_WORK}/vless-watchdog.lock"
 FILE_XRAY_CONF="${DIR_WORK}/xray-config.json"
 PATH_XRAY_BIN="/opt/vless-watchdog/bin/xray_softfloat"
-URL_SOURCE="https://raw.githack.com/igareck/vpn-configs-for-russia/main/BLACK_VLESS_RUS.txt"
+URL_SOURCE="https://*.txt"
 URL_TEST="http://www.google.com"
-BLACKLIST_WORD="Telegram"
-COUNTRY_EXCLUDE="Russia|Belarus|Kazakhstan|Ukraine"
+BLACKLIST_WORD=""
+COUNTRY_EXCLUDE=""
 
 mkdir -p "/opt/vless-watchdog/bin" "$DIR_WORK"
 
