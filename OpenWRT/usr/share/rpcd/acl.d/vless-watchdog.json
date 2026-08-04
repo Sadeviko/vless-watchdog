@@ -1,10 +1,20 @@
 {
     "vless-watchdog": {
-        "description": "Allow LuCI to read vless-watchdog favorites",
+        "description": "VLESS Watchdog LuCI permissions",
         "read": {
             "file": {
-                "/var/run/vless-watchdog/favorites.txt": [ "read" ]
+                "/var/run/vless-watchdog/favorites.txt": [ "read" ],
+                "/opt/vless-watchdog/config.conf": [ "read" ]
             }
+        },
+        "write": {
+            "file": {
+                "/opt/vless-watchdog/config.conf": [ "write" ]
+            }
+        },
+        "exec": {
+            "/bin/sh": [ "exec" ],
+            "/opt/vless-watchdog/vless-watchdog": [ "exec" ]
         }
     }
 }
