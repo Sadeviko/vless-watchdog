@@ -1,15 +1,17 @@
 #!/bin/sh
 
+DIR_RUN="/opt/vless-watchdog"
 DIR_WORK="/var/run/vless-watchdog"
+CONFIG_FILE="${DIR_RUN}/config.conf"
 FILE_SOURCE="${DIR_WORK}/source.txt"
 FILE_FAVORITES="${DIR_WORK}/favorites.txt"
 FILE_LOCK="${DIR_WORK}/vless-watchdog.lock"
 FILE_XRAY_CONF="${DIR_WORK}/xray-config.json"
 PATH_XRAY_BIN="/opt/vless-watchdog/bin/xray_softfloat"
-URL_SOURCE="https://*.txt"
+URL_SOURCE="https://raw.githack.com/igareck/vpn-configs-for-russia/main/BLACK_VLESS_RUS.txt"
 URL_TEST="http://www.google.com"
-BLACKLIST_WORD=""
-COUNTRY_EXCLUDE=""
+BLACKLIST_WORD="Telegram"
+COUNTRY_EXCLUDE="Russia|Belarus|Kazakhstan|Ukraine"
 
 mkdir -p "/opt/vless-watchdog/bin" "$DIR_WORK"
 
@@ -414,6 +416,7 @@ main() {
     rm -f "$FILE_LOCK"
 
     echo "Warning: No available servers found, trying to rebuild the favorites list..."
+	update_source
     build_favorites
 
     if [ ! -s "$FILE_FAVORITES" ]; then
